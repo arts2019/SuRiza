@@ -1,1 +1,2 @@
-<img width="1800" height="3000" alt="投稿用スザリ" src="https://github.com/user-attachments/assets/2dd0f151-e62b-4302-aa44-0d1f12426eae" />
+
+<img width="1800" height="3000" alt="SuRiza文字入りおどりつき" src="https://github.com/user-attachments/assets/62746366-572a-4e4d-97cc-f8b891dae85c" />
