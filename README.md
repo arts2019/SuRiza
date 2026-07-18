@@ -1,2 +1,2 @@
+<img width="3840" height="2160" alt="SuRiza_srb2" src="https://github.com/user-attachments/assets/769fe8c3-f9c2-407f-933d-87fba0b2c9e5" />
 
-<img width="1800" height="3000" alt="SuRiza文字入りおどりつき" src="https://github.com/user-attachments/assets/62746366-572a-4e4d-97cc-f8b891dae85c" />
