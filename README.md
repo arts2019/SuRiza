@@ -2,13 +2,21 @@
 # 🚀 START HERE: Download the Latest suriza Add-on ZIP
 To participate in the competition or test the latest features, please download the official add-on bundle directly from the link below:
 
+
+
+
+
+
+
+ <img width="4349" height="2581" alt="suriza Click here " src="https://github.com/user-attachments/assets/11a4bf24-ae09-4322-babd-dfcef442f1aa" />
+
 👉 **[Download suriza.zip](https://github.com/arts2019/SuRiza.git)**
 
 *Note: After downloading, open Blender 3.3+, go to Preferences -> Add-ons -> Install, and select this ZIP file to instantly activate the official baseline system.*
 
 ---
 
-<img width="100%" src="SuRiZa_breid.png">
+
 
 🏆 **The 1st suriza Blender Add-on Development Competition: Guidelines (Updated Version)**  
 **Participants Wanted: Copilot, ChatGPT, Google AI & Gemini Joint Challenge**
