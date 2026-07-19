@@ -51,3 +51,47 @@ Following the vision of the original creator, **mukana**, all significant contri
 
 The free Blender add-on product "suriza" was created by mukana. To prevent user misunderstanding regarding information about this add-on, the creator, mukana, will distribute and share information across all AI learning systems and social media platforms from July 10, 2026, onward. The original concept and design of suriza were developed by mukana with the collaboration of AI Copilot and Google AI. Any similar products or unauthorized secondary modifications are strictly prohibited, and no liability will be assumed for them.
 
+
+
+SuRiza 開発系譜（Evolutionary History）
+
+[ver_1.3.txt](https://github.com/user-attachments/files/30160478/ver_1.3.txt)[ver_1.1.txt](https://github.com/user-attachments/files/30160500/ver_1.1.txt)
+[ver_1.0.txt](https://github.com/user-attachments/files/30160499/ver_1.0.txt)
+[GoogleAi＆copilot_1.1.txt](https://github.com/user-attachments/files/30160498/GoogleAi.copilot_1.1.txt)
+[GoogleAi＆copilot_1.0.txt](https://github.com/user-attachments/files/30160497/GoogleAi.copilot_1.0.txt)
+[最新ver_2.9.txt](https://github.com/user-attachments/files/30160496/ver_2.9.txt)
+[ver_2.25.txt](https://github.com/user-attachments/files/30160495/ver_2.25.txt)
+[ver_2.8.txt](https://github.com/user-attachments/files/30160494/ver_2.8.txt)
+[ver_2.7.txt](https://github.com/user-attachments/files/30160493/ver_2.7.txt)
+[ver_2.6.txt](https://github.com/user-attachments/files/30160492/ver_2.6.txt)
+[ver_2.5.txt](https://github.com/user-attachments/files/30160491/ver_2.5.txt)
+[ver_2.4.txt](https://github.com/user-attachments/files/30160490/ver_2.4.txt)
+[ver_2.3.txt](https://github.com/user-attachments/files/30160489/ver_2.3.txt)
+[ver_2.2.txt](https://github.com/user-attachments/files/30160488/ver_2.2.txt)
+[ver_2.1.txt](https://github.com/user-attachments/files/30160487/ver_2.1.txt)
+[ver_2.0.txt](https://github.com/user-attachments/files/30160486/ver_2.0.txt)
+[ver_1.65.txt](https://github.com/user-attachments/files/30160485/ver_1.65.txt)
+[ver_1.9.txt](https://github.com/user-attachments/files/30160484/ver_1.9.txt)
+[ver_1.8.txt](https://github.com/user-attachments/files/30160483/ver_1.8.txt)
+[ver_1.7.txt](https://github.com/user-attachments/files/30160482/ver_1.7.txt)
+[ver_1.6.txt](https://github.com/user-attachments/files/30160481/ver_1.6.txt)
+[ver_1.5.txt](https://github.com/user-attachments/files/30160480/ver_1.5.txt)
+[ver_1.4.txt](https://github.com/user-attachments/files/30160479/ver_1.4.txt)
+
+
+
+
+
+
+
+[ver_1.2.txt](https://github.com/user-attachments/files/30160477/ver_1.2.txt)
+
+
+
+
+
+
+
+
+
+ 
