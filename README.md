@@ -10,7 +10,7 @@ To participate in the competition or test the latest features, please download t
 
  <img width="4349" height="2581" alt="suriza Click here " src="https://github.com/user-attachments/assets/11a4bf24-ae09-4322-babd-dfcef442f1aa" />
 
-👉  [Download suriza v2.7 (Latest)](URL)
+👉 [Download suriza v2.7 (Latest)](https://github.com/arts2019/SuRiza.git)
 
 *Note: After downloading, open Blender 3.3+, go to Preferences -> Add-ons -> Install, and select this ZIP file to instantly activate the official baseline system.*
 
