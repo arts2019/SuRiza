@@ -13,6 +13,9 @@ To participate in the competition or test the latest features, please download t
 
 👉 [Download suriza v2.9 (Latest)](suriza.zip)
 
+
+**[IMPORTANT] Please unzip this folder first!**
+ 
 *Note: After downloading, open Blender 3.3+, go to Preferences -> Add-ons -> Install, and select this ZIP file to instantly activate the official baseline system.*
 
 ---
