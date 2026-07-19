@@ -1,0 +1,181 @@
+bl_info = {
+    "name": "suriza",
+    "author": "Your Name",
+    "version": (1, 0),
+    "blender": (3, 3, 0),
+    "location": "View3D > Sidebar > suriza",
+    "description": "suriza ('srb') を呼び出し、HiPolyモデルと交差(Intersect)処理を行います。",
+    "category": "Object",
+}
+
+import bpy
+import os
+
+# ==========================================
+# 1. srb（srb.blend）を呼び出すオペレーター
+# ==========================================
+class SURIZA_OT_import_srb(bpy.types.Operator):
+    bl_idname = "suriza.import_srb"
+    bl_label = "srbを呼び出す"
+    bl_description = "アドオンフォルダ内のsrb.blendからsrbオブジェクトをアペンドします"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        # アドオンのインストールディレクトリを取得
+        addon_dir = os.path.dirname(real_path := os.path.abspath(__file__))
+        blend_file_path = os.path.join(addon_dir, "srb.blend")
+
+        if not os.path.exists(blend_file_path):
+            self.report({'ERROR'}, f"srb.blend が見つかりません:\n{blend_file_path}")
+            return {'CANCELLED'}
+
+        # アペンドするオブジェクト名
+        target_obj_name = "srb" 
+        
+        # .blendファイルからオブジェクトをアペンド
+        with bpy.data.libraries.load(blend_file_path, link=False) as (data_from, data_to):
+            if target_obj_name in data_from.objects:
+                data_to.objects = [target_obj_name]
+            else:
+                # 念のため部分一致でも検索
+                matched = [name for name in data_from.objects if "srb" in name.lower() or "suriza" in name.lower()]
+                if matched:
+                    data_to.objects = [matched[0]]
+                    target_obj_name = matched[0]
+                else:
+                    self.report({'ERROR'}, f"blendファイル内に '{target_obj_name}' オブジェクトが見つかりません。")
+                    return {'CANCELLED'}
+
+        # シーンにリンクして選択状態にする
+        for obj in data_to.objects:
+            if obj is not None:
+                context.collection.objects.link(obj)
+                # 選択状態にする
+                bpy.ops.object.select_all(action='DESELECT')
+                obj.select_set(True)
+                context.view_layer.objects.active = obj
+                self.report({'INFO'}, f"'{obj.name}' をアペンドしました。")
+                
+        return {'FINISHED'}
+
+
+# ==========================================
+# 2. ブーリアン処理（実行）を行うオペレーター
+# ==========================================
+class SURIZA_OT_execute_boolean(bpy.types.Operator):
+    bl_idname = "suriza.execute_boolean"
+    bl_label = "実行 (Boolean Intersect)"
+    bl_description = "選択されたsrbとHiPolyモデルの間で交差(Intersect)処理を実行します"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        selected_objs = context.selected_objects
+        
+        if len(selected_objs) < 2:
+            self.report({'ERROR'}, "srbオブジェクトとHiPolyモデルの2つを選択してください。")
+            return {'CANCELLED'}
+            
+        active_obj = context.active_object
+        if not active_obj:
+            self.report({'ERROR'}, "アクティブなオブジェクト（最後に選択したオブジェクト）がありません。")
+            return {'CANCELLED'}
+
+        # 選択された2つのオブジェクトを区別する
+        srb_obj = None
+        hipoly_obj = None
+
+        for obj in selected_objs:
+            if "srb" in obj.name.lower() or "suriza" in obj.name.lower():
+                srb_obj = obj
+            else:
+                hipoly_obj = obj
+
+        # 自動判定で特定できなかった場合のフォールバック
+        if not srb_obj or not hipoly_obj or srb_obj == hipoly_obj:
+            # アクティブな方をHiPoly、もう一方をsrbと仮定
+            hipoly_obj = active_obj
+            for obj in selected_objs:
+                if obj != hipoly_obj:
+                    srb_obj = obj
+                    break
+
+        if not srb_obj or not hipoly_obj:
+            self.report({'ERROR'}, "オブジェクトを正しく特定できませんでした。")
+            return {'CANCELLED'}
+
+        self.report({'INFO'}, f"srb: {srb_obj.name} / HiPoly: {hipoly_obj.name} で処理を開始します。")
+
+        # 1. srbをアクティブにする
+        bpy.ops.object.select_all(action='DESELECT')
+        srb_obj.select_set(True)
+        context.view_layer.objects.active = srb_obj
+
+        # 2. ブーリアン(交差: Intersect) モディファイアを追加
+        bool_mod = srb_obj.modifiers.new(name="suriza_boolean", type='BOOLEAN')
+        bool_mod.operation = 'INTERSECT'
+        bool_mod.object = hipoly_obj
+        bool_mod.solver = 'EXACT'
+
+        # 3. モディファイアを適用(Apply)して形状を確定させる
+        try:
+            bpy.ops.object.modifier_apply(modifier=bool_mod.name)
+            self.report({'INFO'}, "ブーリアン処理が成功しました！")
+        except Exception as e:
+            self.report({'ERROR'}, f"モディファイアの適用に失敗しました: {str(e)}")
+            return {'CANCELLED'}
+
+        return {'FINISHED'}
+
+
+# ==========================================
+# 3. UI パネル (サイドバーの 'suriza' タブ)
+# ==========================================
+class SURIZA_PT_main_panel(bpy.types.Panel):
+    bl_label = "suriza System"
+    bl_idname = "SURIZA_PT_main_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'suriza'  # Nキーを押したときに出るタブ名
+
+    def draw(self, context):
+        layout = self.layout
+        
+        # ① srb呼び出しセクション
+        box = layout.box()
+        box.label(text="手順 1: srbの準備", icon='FILE_BLEND')
+        box.operator("suriza.import_srb", text="srbを呼びだす", icon='IMPORT')
+        
+        # 説明テキスト
+        box.label(text="※呼び出し後、マニピュレーターで", icon='INFO')
+        box.label(text="  HiPolyモデルの位置に合わせてください。")
+
+        # ② 実行セクション
+        box2 = layout.box()
+        box2.label(text="手順 2: 処理の実行", icon='MODIFIER')
+        box2.operator("suriza.execute_boolean", text="実行 (Boolean)", icon='MOD_BOOLEAN')
+        
+        box2.label(text="【操作方法】", icon='HELP')
+        box2.label(text="1. srbを選択")
+        box2.label(text="2. Shiftを押しながらHiPolyを選択")
+        box2.label(text="3. 「実行」ボタンを押す")
+
+
+# ==========================================
+# 4. クラスの登録と解除
+# ==========================================
+classes = (
+    SURIZA_OT_import_srb,
+    SURIZA_OT_execute_boolean,
+    SURIZA_PT_main_panel,
+)
+
+def register():
+    for cls in classes:
+        bpy.utils.register_class(cls)
+
+def unregister():
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
+
+if __name__ == "__main__":
+    register()

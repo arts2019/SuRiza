@@ -1,0 +1,197 @@
+# ---------------------------------------------------------------------------
+# SuRiZa Ver 1.5.0 - [Official Global Release: Pure Object Mode & Plane Blade]
+# Developed by mukana8888 & Gai (Powered by Google AI)
+# ---------------------------------------------------------------------------
+
+bl_info = {
+    "name": "SuRiZa Core System",
+    "author": "mukana8888 & Gai",
+    "version": (1, 5, 0), # 究極の1.5.0へ進化！
+    "blender": (3, 3, 0), # Blender 3.3に完全適合
+    "location": "View3D > Sidebar > SuRiZa タブ",
+    "description": "図面通りの平面スリットブレードを配置し、オブジェクトモード同士で完璧な星座線を抽出する",
+    "category": "Mesh",
+}
+
+import bpy
+
+# ---------------------------------------------------------------------------
+# 1. 【図面通り】平面ブレイドのスリットを「原点真ん中」で出現させる関数
+# ---------------------------------------------------------------------------
+class OBJECT_OT_suriza_create_blade(bpy.types.Operator):
+    bl_idname = "object.suriza_create_blade"
+    bl_label = "Create Plane Blade"
+    bl_description = "図面通りの平面ブレイド（スリット板）を、原点真ん中で出現させます"
+    
+    def execute(self, context):
+        # 画面に古いブレードがある場合はお掃除（自動削除）
+        if "SuRiZa_Blade_Target" in bpy.data.objects:
+            bpy.ops.object.select_all(action='DESELECT')
+            bpy.data.objects["SuRiZa_Blade_Target"].select_set(True)
+            bpy.ops.object.delete()
+
+        scene = context.scene
+        slice_count = scene.suriza_slice_count
+        
+        # 図面のSide view通り、厚みのない薄い「1枚の平面（ブレードの刃）」を生成
+        bpy.ops.mesh.primitive_plane_add(size=2.0, location=(0, 0, 0))
+        blade_obj = context.active_object
+        blade_obj.name = "SuRiZa_Blade_Target"
+        
+        # 刃を正面（Front viewで縦線のスリットに見える向き）に90度起こす
+        blade_obj.rotation_euler = (0, 1.5708, 0) # Y軸に90度回転
+        bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+        
+        # 配列（Array）を使い、設定された数だけ横にスリットを並べる
+        array_mod = blade_obj.modifiers.new(name="SuRiZa_Array", type='ARRAY')
+        array_mod.count = slice_count
+        array_mod.use_relative_offset = False
+        array_mod.use_constant_offset = True
+        # 横（X軸）の間隔を設定（初期値は0.05m間隔）
+        array_mod.constant_offset_displace = (0.05, 0, 0)
+        
+        # 配列を確定（実体化）
+        bpy.ops.object.modifier_apply(modifier="SuRiZa_Array")
+        
+        # 【最重要：チーフデザイナーの指示】原点を完全に全体の「真ん中」に修正する
+        bpy.ops.object.origin_set(type='ORIGIN_GEOMETRY', center='BOUNDS')
+        
+        # 初期位置を3D空間の原点(0,0,0)にピタッと戻す
+        blade_obj.location = (0, 0, 0)
+        
+        # 視認性が抜群で裏まで見えるように設定
+        blade_obj.display_type = 'WIRE'
+        blade_obj.color = (1.0, 0.4, 0.0, 1.0) # オレンジ
+        
+        self.report({'INFO'}, "SuRiZa: 図面通りの平面スリットブレイドを原点中心で生成しました！")
+        return {'FINISHED'}
+
+# ---------------------------------------------------------------------------
+# 2. 【オブジェクトモード同士】ガチンコでブーリアン交差をかけるメイン関数
+# ---------------------------------------------------------------------------
+class OBJECT_OT_suriza_execute_slice(bpy.types.Operator):
+    bl_idname = "object.suriza_execute_slice"
+    bl_label = "Execute SuRiZa Slice"
+    bl_description = "オブジェクトモードのまま、配置した平面ブレイドでハイポリモデルをスライスします"
+    
+    def execute(self, context):
+        if "SuRiZa_Blade_Target" not in bpy.data.objects:
+            self.report({'WARNING'}, "SuRiZa: 先に「平面ブレイド」を生成してください！")
+            return {'CANCELLED'}
+            
+        blade_obj = bpy.data.objects["SuRiZa_Blade_Target"]
+        target_obj = context.active_object
+        
+        if not target_obj or target_obj.type != 'MESH' or target_obj == blade_obj:
+            self.report({'WARNING'}, "SuRiZa: スライス対象のハイポリモデル（node_0など）を選択してください。")
+            return {'CANCELLED'}
+            
+        # 100%オブジェクトモード同士で実行するよう強制切り替え
+        bpy.ops.object.mode_set(mode='OBJECT')
+        
+        # [ステップ1] ターゲットを複製して、結果用の線オブジェクトを作る
+        bpy.ops.object.select_all(action='DESELECT')
+        target_obj.select_set(True)
+        context.view_layer.objects.active = target_obj
+        bpy.ops.object.duplicate()
+        result_obj = context.active_object
+        result_obj.name = "SuRiZa_Result_Lines"
+        
+        # [ステップ2] オブジェクトモード同士で「交差（INTERSECT）」を実行！
+        bool_mod = result_obj.modifiers.new(name="SuRiZa_Intersect", type='BOOLEAN')
+        bool_mod.operation = 'INTERSECT'
+        bool_mod.object = blade_obj
+        bool_mod.solver = 'FAST' # 平面同士なので一瞬で終わる超高速設計！
+        
+        bpy.ops.object.modifier_apply(modifier="SuRiZa_Intersect")
+        
+        # [ステップ3] 結果を極細の「辺と頂点（星座線）」だけにお掃除する
+        result_obj.select_set(True)
+        context.view_layer.objects.active = result_obj
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.mesh.delete(type='ONLY_FACE') # 面を消去
+        bpy.ops.object.mode_set(mode='OBJECT')
+        
+        # [ステップ4] 伝統の発光オレンジマテリアルを自動付与
+        mat_name = "SuRiZa_Orange_Guide"
+        suriza_mat = bpy.data.materials.get(mat_name)
+        
+        if not suriza_mat:
+            suriza_mat = bpy.data.materials.new(name=mat_name)
+            suriza_mat.use_nodes = True
+            nodes = suriza_mat.node_tree.nodes
+            links = suriza_mat.node_tree.links
+            
+            nodes.clear()
+            node_output = nodes.new(type='ShaderNodeOutputMaterial')
+            node_emission = nodes.new(type='ShaderNodeEmission')
+            
+            node_emission.inputs.default_value = (1.0, 0.25, 0.0, 1.0)
+            node_emission.inputs.default_value = 3.0
+            
+            links.new(node_emission.outputs, node_output.inputs)
+            
+        result_obj.data.materials.clear()
+        result_obj.data.materials.append(suriza_mat)
+        result_obj.color = (1.0, 0.25, 0.0, 1.0)
+        
+        # 最後にブレードとモデルを画面に残して終了
+        self.report({'INFO'}, "SuRiZa: オブジェクトモード同士での平面スライスに完全大成功しました！")
+        return {'FINISHED'}
+
+# ---------------------------------------------------------------------------
+# 3. Blenderのサイドバー画面（UIパネル）の設定
+# ---------------------------------------------------------------------------
+class VIEW3D_PT_suriza_panel(bpy.types.Panel):
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'SuRiZa'
+    bl_label = 'SuRiZa Core System'
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        
+        layout.label(text="Version 1.5.0 (Official Release)")
+        
+        # スライス数（平面ブレードの初期の刃の枚数）
+        layout.separator()
+        layout.label(text="[1. 初期ブレード枚数の設定]")
+        layout.prop(scene, "suriza_slice_count", text="スリット（刃）の枚数")
+        
+        # 平面ブレードの出現ボタン
+        layout.separator()
+        layout.label(text="[2. ブレードの生成]")
+        layout.operator("object.suriza_create_blade", text="平面ブレイド（スリット）を出現させる", icon='GRID')
+        
+        layout.separator()
+        layout.label(text="※ギズモ（マニピュレーター）で")
+        layout.label(text="　位置・角度・スケールを自由に調節し、")
+        layout.label(text="　ハイポリモデルを選択して実行↓")
+        
+        # オブジェクトモード同士のスライス実行ボタン
+        layout.separator()
+        layout.operator("object.suriza_execute_slice", text="オブジェクトモード同士でスライス実行！", icon='MESH_GRID')
+
+# ---------------------------------------------------------------------------
+# 4. アドオンの登録と解除（エラーの種を根絶したクリーン構造）
+# ---------------------------------------------------------------------------
+classes = (
+    OBJECT_OT_suriza_create_blade,
+    OBJECT_OT_suriza_execute_slice,
+    VIEW3D_PT_suriza_panel,
+)
+
+def register():
+    for cls in classes:
+        bpy.utils.register_class(cls)
+    bpy.types.Scene.suriza_slice_count = bpy.props.IntProperty(name="Count", default=30, min=2, max=100)
+
+def unregister():
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
+    del bpy.types.Scene.suriza_slice_count
+
+if __name__ == "__main__":
+    register()

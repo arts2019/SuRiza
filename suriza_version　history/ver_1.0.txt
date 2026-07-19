@@ -1,0 +1,62 @@
+bl_info = {
+    "name": "SuZari",
+    "author": "zoukei",
+    "version": (1, 0),
+    "blender": (3, 0, 0),
+    "location": "Nパネル > SuZari",
+    "description": "Nキーからスパナへ飛び、SuZari Boolean（交差）を追加するスイッチ",
+    "category": "Object",
+}
+
+import bpy
+
+
+class SUZARI_OT_switch(bpy.types.Operator):
+    bl_idname = "suzari.switch"
+    bl_label = "SuZari"
+
+    def execute(self, context):
+
+        # ★ どこからでもスパナ（モディファイア）タブへ強制ジャンプ
+        area = context.area
+        if area and area.type == 'VIEW_3D':
+            area.ui_type = 'MODIFIER'
+
+        # ★ アクティブオブジェクトに Boolean（交差）を追加
+        obj = context.active_object
+        if obj is None:
+            self.report({'WARNING'}, "アクティブオブジェクトがありません")
+            return {'CANCELLED'}
+
+        mod = obj.modifiers.new(name="SuZari", type='BOOLEAN')
+        mod.operation = 'INTERSECT'  # 交差
+        mod.solver = 'FAST'          # 高速
+        mod.object = None            # Hipoly は後でスポイトで選ぶ
+
+        return {'FINISHED'}
+
+
+class SUZARI_PT_panel(bpy.types.Panel):
+    bl_label = "SuZari"
+    bl_idname = "SUZARI_PT_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "SuZari"   # Nキーのタブ名
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("suzari.switch", text="SuZari Boolean")
+
+
+def register():
+    bpy.utils.register_class(SUZARI_OT_switch)
+    bpy.utils.register_class(SUZARI_PT_panel)
+
+
+def unregister():
+    bpy.utils.unregister_class(SUZARI_PT_panel)
+    bpy.utils.unregister_class(SUZARI_OT_switch)
+
+
+if __name__ == "__main__":
+    register()

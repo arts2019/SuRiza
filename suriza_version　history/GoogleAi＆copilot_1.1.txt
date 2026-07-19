@@ -1,0 +1,170 @@
+bl_info = {
+    "name": "SuRiZa Core System",
+    "author": "mukana8888 & Gai",
+    "version": (1, 3, 1),
+    "blender": (3, 3, 0),
+    "location": "View3D > Sidebar > SuRiZa タブ",
+    "description": "編集モードで選択したパーツの表面だけを狙って、完璧な極細オレンジの星座線を抽出する",
+    "category": "Mesh",
+}
+
+import bpy
+
+def execute_suriza_selected_slice(context):
+    base_obj = context.active_object
+    if not base_obj or base_obj.type != 'MESH':
+        return {'CANCELLED'}
+
+    scene = context.scene
+    slice_count = scene.suriza_slice_count
+    slice_distance = scene.suriza_slice_distance
+
+    if base_obj.mode != 'EDIT':
+        return {'CANCELLED'}
+
+    # ------------------------------------------------------------
+    # ① 選択部分を複製＆分離（Blender 3.3 安定版）
+    # ------------------------------------------------------------
+    bpy.ops.mesh.duplicate_move()
+    bpy.ops.mesh.separate(type='SELECTED')
+
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    # 分離されたオブジェクトを取得
+    objs = context.selected_objects
+    part_obj = None
+    for o in objs:
+        if o != base_obj:
+            part_obj = o
+            break
+
+    if part_obj is None:
+        bpy.ops.object.select_all(action='DESELECT')
+        base_obj.select_set(True)
+        context.view_layer.objects.active = base_obj
+        bpy.ops.object.mode_set(mode='EDIT')
+        return {'CANCELLED'}
+
+    part_obj.name = "SuRiZa_Temp_Part"
+    part_loc = part_obj.location.copy()
+
+    # ------------------------------------------------------------
+    # ② Grid 作成
+    # ------------------------------------------------------------
+    bpy.ops.mesh.primitive_grid_add(
+        size=5,
+        x_subdivisions=2,
+        y_subdivisions=2,
+        location=part_loc
+    )
+    grid_obj = context.active_object
+    grid_obj.name = "SuRiZa_Cutter_Grid"
+    grid_obj.display_type = 'WIRE'
+
+    # ------------------------------------------------------------
+    # ③ Array で等間隔スライス
+    # ------------------------------------------------------------
+    array_mod = grid_obj.modifiers.new(name="SuRiZa_Array", type='ARRAY')
+    array_mod.count = slice_count
+    array_mod.use_relative_offset = False
+    array_mod.use_constant_offset = True
+
+    grid_obj.location.z -= (slice_count / 2) * slice_distance
+    array_mod.constant_offset_displace = (0, 0, slice_distance)
+
+    bpy.ops.object.modifier_apply(modifier="SuRiZa_Array")
+
+    # ------------------------------------------------------------
+    # ④ ブーリアン交差
+    # ------------------------------------------------------------
+    bpy.ops.object.select_all(action='DESELECT')
+    part_obj.select_set(True)
+    context.view_layer.objects.active = part_obj
+
+    bool_mod = part_obj.modifiers.new(name="SuRiZa_Intersect", type='BOOLEAN')
+    bool_mod.operation = 'INTERSECT'
+    bool_mod.object = grid_obj
+    bool_mod.solver = 'EXACT'  # Blender 3.3 は EXACT が安定
+
+    bpy.ops.object.modifier_apply(modifier="SuRiZa_Intersect")
+
+    # ------------------------------------------------------------
+    # ⑤ カッター削除
+    # ------------------------------------------------------------
+    bpy.ops.object.select_all(action='DESELECT')
+    grid_obj.select_set(True)
+    bpy.ops.object.delete()
+
+    # ------------------------------------------------------------
+    # ⑥ 線だけ残す
+    # ------------------------------------------------------------
+    part_obj.name = "SuRiZa_Result_Lines"
+    part_obj.select_set(True)
+    context.view_layer.objects.active = part_obj
+
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.delete(type='ONLY_FACE')
+    bpy.ops.object.mode_set(mode='OBJECT')
+
+    # ------------------------------------------------------------
+    # ⑦ オレンジ発光マテリアル
+    # ------------------------------------------------------------
+    mat_name = "SuRiZa_Orange_Guide"
+    suriza_mat = bpy.data.materials.get(mat_name)
+
+    if not suriza_mat:
+        suriza_mat = bpy.data.materials.new(name=mat_name)
+        suriza_mat.use_nodes = True
+        nodes = suriza_mat.node_tree.nodes
+        links = suriza_mat.node_tree.links
+
+        nodes.clear()
+        node_output = nodes.new(type='ShaderNodeOutputMaterial')
+        node_emission = nodes.new(type='ShaderNodeEmission')
+
+        node_emission.inputs[0].default_value = (1.0, 0.25, 0.0, 1.0)
+        node_emission.inputs[1].default_value = 3.0
+
+        links.new(
+            node_emission.outputs['Emission'],
+            node_output.inputs['Surface']
+        )
+
+    if len(part_obj.data.materials) == 0:
+        part_obj.data.materials.append(suriza_mat)
+    else:
+        part_obj.data.materials[0] = suriza_mat
+
+    part_obj.color = (1.0, 0.25, 0.0, 1.0)
+
+    # ------------------------------------------------------------
+    # ⑧ 元オブジェクトを編集モードに戻す
+    # ------------------------------------------------------------
+    base_obj.select_set(True)
+    context.view_layer.objects.active = base_obj
+    bpy.ops.object.mode_set(mode='EDIT')
+
+    return {'FINISHED'}
+
+
+# ------------------------------------------------------------
+# UI / Operator
+# ------------------------------------------------------------
+
+class VIEW3D_PT_suriza_panel(bpy.types.Panel):
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'SuRiZa'
+    bl_label = 'SuRiZa Core System'
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+
+        layout.label(text="Version 1.3.1 (Stable Partition Mode)")
+        layout.label(text="Slice Settings:")
+        layout.prop(scene, "suriza_slice_count", text="スライス数")
+        layout.prop(scene, "suriza_slice_distance", text="間隔 (m)")
+
+        layout.separator

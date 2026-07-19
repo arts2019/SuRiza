@@ -1,0 +1,146 @@
+bl_info = {
+    "name": "AIBO-Louver System",
+    "author": "zoukei & AIBO",
+    "version": (1, 0, 0),
+    "blender": (4, 0, 0),
+    "location": "View3D > Sidebar > AIBO-Louver",
+    "description": "20 vertical blades (1mm units) + Boolean Intersect",
+    "category": "Object",
+}
+
+import bpy
+
+
+# 20枚の縦ブレイド生成（1BU = 1mm 前提）
+def create_aibo_louver_blades():
+    # 既存のAIBO_Louverオブジェクト削除
+    for obj in bpy.data.objects:
+        if obj.name.startswith("AIBO_Blade_"):
+            bpy.data.objects.remove(obj, do_unlink=True)
+
+    col = bpy.data.collections.get("AIBO_Louver")
+    if not col:
+        col = bpy.data.collections.new("AIBO_Louver")
+        bpy.context.scene.collection.children.link(col)
+
+    # 20枚生成：高さ200mm、幅50mm、ピッチ10mm（縦方向）
+    pitch = 10.0
+    height = 200.0
+    width = 50.0
+
+    # 原点から縦方向に並べる（図と同じ向き想定：+Y方向）
+    for i in range(20):
+        y = i * pitch
+
+        mesh = bpy.data.meshes.new(f"AIBO_Blade_Mesh_{i:02d}")
+        obj = bpy.data.objects.new(f"AIBO_Blade_{i:02d}", mesh)
+        col.objects.link(obj)
+
+        # 平面メッシュ作成（厚みゼロ）
+        verts = [
+            (-width / 2, y, 0.0),
+            ( width / 2, y, 0.0),
+            ( width / 2, y + pitch, 0.0),
+            (-width / 2, y + pitch, 0.0),
+        ]
+        edges = []
+        faces = [[0, 1, 2, 3]]
+        mesh.from_pydata(verts, edges, faces)
+        mesh.update()
+
+        obj.select_set(True)
+
+    # すべて選択状態にしてマニュピレーター連動
+    bpy.context.view_layer.objects.active = col.objects[0]
+
+
+class AIBO_OT_LouverOn(bpy.types.Operator):
+    bl_idname = "aibo.louver_on"
+    bl_label = "AIBO-Louver ON"
+    bl_description = "20 vertical blades (1mm) appear and are selected"
+
+    def execute(self, context):
+        create_aibo_louver_blades()
+        return {'FINISHED'}
+
+
+class AIBO_OT_LouverIntersect(bpy.types.Operator):
+    bl_idname = "aibo.louver_intersect"
+    bl_label = "AIBO-Louver Intersect"
+    bl_description = "Boolean Intersect between selected blades and active vest"
+
+    def execute(self, context):
+        # アクティブオブジェクト＝ベスト（HiPoly）
+        vest = context.view_layer.objects.active
+        if vest is None:
+            self.report({'ERROR'}, "Active object (vest) not found")
+            return {'CANCELLED'}
+
+        # ブレイド群取得（選択されている AIBO_Blade_*）
+        blades = [obj for obj in context.selected_objects
+                  if obj.name.startswith("AIBO_Blade_")]
+
+        if not blades:
+            self.report({'ERROR'}, "No AIBO_Blade_* selected")
+            return {'CANCELLED'}
+
+        # ブレイドを1つに結合
+        bpy.ops.object.select_all(action='DESELECT')
+        for b in blades:
+            b.select_set(True)
+        context.view_layer.objects.active = blades[0]
+        bpy.ops.object.join()
+        blade_obj = context.view_layer.objects.active
+
+        # ベストをアクティブに戻す
+        bpy.ops.object.select_all(action='DESELECT')
+        vest.select_set(True)
+        context.view_layer.objects.active = vest
+
+        # Boolean Intersect 追加
+        mod = vest.modifiers.new(name="AIBO_Louver_Intersect", type='BOOLEAN')
+        mod.operation = 'INTERSECT'
+        mod.solver = 'FAST'
+        mod.object = blade_obj
+
+        # 適用（必要ならコメントアウト）
+        bpy.ops.object.modifier_apply(modifier=mod.name)
+
+        self.report({'INFO'}, "AIBO-Louver Boolean Intersect executed")
+        return {'FINISHED'}
+
+
+class AIBO_PT_LouverPanel(bpy.types.Panel):
+    bl_label = "AIBO-Louver System"
+    bl_idname = "AIBO_PT_LouverPanel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "AIBO-Louver"
+
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column(align=True)
+        col.label(text="Blade & Boolean")
+        col.operator("aibo.louver_on", icon='MESH_GRID')
+        col.operator("aibo.louver_intersect", icon='MOD_BOOLEAN')
+
+
+classes = (
+    AIBO_OT_LouverOn,
+    AIBO_OT_LouverIntersect,
+    AIBO_PT_LouverPanel,
+)
+
+
+def register():
+    for c in classes:
+        bpy.utils.register_class(c)
+
+
+def unregister():
+    for c in reversed(classes):
+        bpy.utils.unregister_class(c)
+
+
+if __name__ == "__main__":
+    register()

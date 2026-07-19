@@ -1,0 +1,280 @@
+# ---------------------------------------------------------------------------
+# SuRiZa Ver 1.3.3 - [Fixed: Local Variable Definition Error]
+# Developed by mukana8888 & Gai (Powered by Google AI)
+# ---------------------------------------------------------------------------
+
+bl_info = {
+    "name": "SuRiZa Core System",
+    "author": "mukana8888 & Gai",
+    "version": (1, 4, 3), # バージョンを1.4.3に完全修正！
+    "blender": (3, 3, 0), # Blender 3.3に完全適合
+    "location": "View3D > Sidebar > SuRiZa タブ",
+    "description": "3Dギズモと疑似Boxで位置を確認しながら、選択したパーツの表面を正確に解体する",
+    "category": "Mesh",
+}
+
+import bpy
+import math
+import gpu
+from gpu_extras.batch import batch_for_shader
+from mathutils import Matrix, Vector
+
+# ---------------------------------------------------------------------------
+# 1. 疑似Box（ワイヤーフレーム箱）の超軽量リアルタイム描画システム
+# ---------------------------------------------------------------------------
+draw_handle = None
+
+def draw_pseudo_blade_box():
+    # 【超強化セーフティ】現在のBlenderのコンテキストやシーンが完全に準備できるまで即リターン
+    context = bpy.context
+    if not context or not hasattr(context, "scene"):
+        return
+        
+    scene = context.scene
+    # 【最重要】プロパティがBlender内部に100%登録完了しているか厳密にチェック
+    if not hasattr(scene, "suriza_slice_count") or not hasattr(scene, "suriza_slice_distance"):
+        return
+        
+    active_obj = context.active_object
+    if not active_obj or active_obj.type != 'MESH' or active_obj.mode != 'EDIT':
+        return
+        
+    slice_count = scene.suriza_slice_count
+    slice_distance = scene.suriza_slice_distance
+    box_height = slice_count * slice_distance
+    
+    rot_x = math.radians(getattr(scene, "suriza_rot_x", 0.0))
+    rot_y = math.radians(getattr(scene, "suriza_rot_y", 0.0))
+    rot_z = math.radians(getattr(scene, "suriza_rot_z", 0.0))
+
+    mesh = active_obj.data
+    import bmesh
+    
+    try:
+        bm = bmesh.from_edit_mesh(mesh)
+        selected_verts = [v.co for v in bm.verts if v.select]
+    except:
+        return
+    
+    if not selected_verts:
+        return
+        
+    center = sum(selected_verts, Vector((0, 0, 0))) / len(selected_verts)
+    world_center = active_obj.matrix_world @ center
+
+    w, d, h = 1.5, 1.5, box_height / 2
+    vertices = [
+        Vector((-w, -d, -h)), Vector((w, -d, -h)), Vector((w, d, -h)), Vector((-w, d, -h)),
+        Vector((-w, -d, h)), Vector((w, -d, h)), Vector((w, d, h)), Vector((-w, d, h))
+    ]
+    
+    mat_rot = Matrix.Rotation(rot_x, 4, 'X') @ Matrix.Rotation(rot_y, 4, 'Y') @ Matrix.Rotation(rot_z, 4, 'Z')
+    
+    world_coords = []
+    for v in vertices:
+        v_rotated = mat_rot @ v
+        world_coords.append(world_center + v_rotated)
+
+    lines = [
+        (0, 1), (1, 2), (2, 3), (3, 0),
+        (4, 5), (5, 6), (6, 7), (7, 4),
+        (0, 4), (1, 5), (2, 6), (3, 7)
+    ]
+    
+    try:
+        shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
+        batch = batch_for_shader(shader, 'LINES', {"pos": world_coords}, indices=lines)
+        shader.bind()
+        shader.uniform_float("color", (1.0, 0.4, 0.0, 0.4))
+        gpu.matrix.push_pop_view()
+        batch.draw(shader)
+    except:
+        return
+
+def register_draw_handler():
+    global draw_handle
+    if draw_handle is None:
+        draw_handle = bpy.types.SpaceView3D.draw_handler_add(draw_pseudo_blade_box, (), 'WINDOW', 'POST_VIEW')
+
+def unregister_draw_handler():
+    global draw_handle
+    if draw_handle is not None:
+        bpy.types.SpaceView3D.draw_handler_remove(draw_handle, 'WINDOW')
+        draw_handle = None
+
+# ---------------------------------------------------------------------------
+# 2. メイン処理：パーツを吸着解体する関数
+# ---------------------------------------------------------------------------
+def execute_suriza_blade_box(self, context):
+    base_obj = context.active_object
+    
+    if not base_obj or base_obj.type != 'MESH':
+        self.report({'WARNING'}, "SuRiZa: 有効なメッシュオブジェクトが見つかりません。")
+        return {'CANCELLED'}
+        
+    if base_obj.mode != 'EDIT':
+        self.report({'WARNING'}, "SuRiZa: 編集モードで面を範囲指定してください。")
+        return {'CANCELLED'}
+    
+    import bmesh
+    bm = bmesh.from_edit_mesh(base_obj.data)
+    selected_faces = [f for f in bm.faces if f.select]
+    
+    if not selected_faces:
+        self.report({'WARNING'}, "SuRiZa: ターゲット範囲（面）が選択されていません！")
+        return {'CANCELLED'}
+        
+    scene = context.scene
+    slice_count = scene.suriza_slice_count
+    slice_distance = scene.suriza_slice_distance
+    
+    rot_x = math.radians(scene.suriza_rot_x)
+    rot_y = math.radians(scene.suriza_rot_y)
+    rot_z = math.radians(scene.suriza_rot_z)
+    
+    bpy.ops.mesh.duplicate() 
+    bpy.ops.mesh.separate(type='SELECTED') 
+    
+    bpy.ops.object.mode_set(mode='OBJECT')
+    separated_parts = [obj for obj in context.selected_objects if obj != base_obj]
+    
+    if not separated_parts:
+        base_obj.select_set(True)
+        context.view_layer.objects.active = base_obj
+        bpy.ops.object.mode_set(mode='EDIT')
+        return {'CANCELLED'}
+    
+    part_obj = separated_parts[0]
+    part_obj.name = "SuRiZa_Temp_Part"
+    
+    part_loc = part_obj.location.copy()
+    
+    bpy.ops.mesh.primitive_cube_add(size=2.0, location=part_loc)
+    grid_obj = context.active_object
+    grid_obj.name = "SuRiZa_Blade_Box"
+    grid_obj.display_type = 'WIRE'
+    
+    grid_obj.scale = (4.0, 4.0, 0.01)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    
+    array_mod = grid_obj.modifiers.new(name="SuRiZa_Array", type='ARRAY')
+    array_mod.count = slice_count
+    array_mod.use_relative_offset = False
+    array_mod.use_constant_offset = True
+    grid_obj.location.z -= (slice_count / 2) * slice_distance
+    array_mod.constant_offset_displace = (0, 0, slice_distance)
+    
+    bpy.ops.object.modifier_apply(modifier="SuRiZa_Array")
+    
+    grid_obj.rotation_euler = (rot_x, rot_y, rot_z)
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+    
+    bpy.ops.object.select_all(action='DESELECT')
+    part_obj.select_set(True)
+    context.view_layer.objects.active = part_obj
+    
+    bool_mod = part_obj.modifiers.new(name="SuRiZa_Intersect", type='BOOLEAN')
+    bool_mod.operation = 'INTERSECT'
+    bool_mod.object = grid_obj
+    bool_mod.solver = 'FAST' 
+    
+    bpy.ops.object.modifier_apply(modifier="SuRiZa_Intersect")
+    
+    bpy.ops.object.select_all(action='DESELECT')
+    grid_obj.select_set(True)
+    bpy.ops.object.delete()
+    
+    part_obj.name = "SuRiZa_Result_Lines"
+    part_obj.select_set(True)
+    context.view_layer.objects.active = part_obj
+    
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.delete(type='ONLY_FACE') 
+    bpy.ops.object.mode_set(mode='OBJECT')
+    
+    mat_name = "SuRiZa_Orange_Guide"
+    suriza_mat = bpy.data.materials.get(mat_name)
+    
+    if not suriza_mat:
+        suriza_mat = bpy.data.materials.new(name=mat_name)
+        suriza_mat.use_nodes = True
+        nodes = suriza_mat.node_tree.nodes
+        links = suriza_mat.node_tree.links
+        
+        nodes.clear()
+        node_output = nodes.new(type='ShaderNodeOutputMaterial')
+        node_emission = nodes.new(type='ShaderNodeEmission')
+        
+        node_emission.inputs[0].default_value = (1.0, 0.25, 0.0, 1.0)
+        node_emission.inputs[1].default_value = 3.0
+        
+        links.new(node_emission.outputs[0], node_output.inputs[0])
+    
+    part_obj.data.materials.clear()
+    part_obj.data.materials.append(suriza_mat)
+    part_obj.color = (1.0, 0.25, 0.0, 1.0)
+    
+    base_obj.select_set(True)
+    context.view_layer.objects.active = base_obj
+    bpy.ops.object.mode_set(mode='EDIT') 
+    
+    self.report({'INFO'}, "SuRiZa: パーツのスライス抽出に成功しました！")
+    return {'FINISHED'}
+
+# ---------------------------------------------------------------------------
+# 3. UI パネル設定
+# ---------------------------------------------------------------------------
+class VIEW3D_PT_suriza_panel(bpy.types.Panel):
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'SuRiZa'
+    bl_label = 'SuRiZa Core System'
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        
+        layout.label(text="Version 1.4.3 (GitHub Ready)") 
+        
+        layout.label(text="[ブレードの設定]")
+        layout.prop(scene, "suriza_slice_count", text="スライス数")
+        layout.prop(scene, "suriza_slice_distance", text="間隔 (m)")
+        
+        layout.separator()
+        layout.label(text="[ブレード箱の角度調節]")
+        layout.prop(scene, "suriza_rot_x", text="X軸回転 (度)")
+        layout.prop(scene, "suriza_rot_y", text="Y軸回転 (度)")
+        layout.prop(scene, "suriza_rot_z", text="Z軸回転 (度)")
+        
+        layout.separator()
+        layout.label(text="※点線枠で面を選んで実行:")
+        layout.operator("object.suriza_run", text="箱型ブレードでスライス", icon='MESH_GRID')
+
+class OBJECT_OT_suriza_run(bpy.types.Operator):
+    bl_idname = "object.suriza_run"
+    bl_label = "Run SuRiZa Blade Box Slice"
+    
+    def execute(self, context):
+        return execute_suriza_blade_box(self, context)
+
+# ---------------------------------------------------------------------------
+# 4. 登録と解除（安全装置の徹底）
+# ---------------------------------------------------------------------------
+classes = (
+    VIEW3D_PT_suriza_panel,
+    OBJECT_OT_suriza_run,
+)
+
+def register():
+    for cls in classes:
+        bpy.utils.register_class(cls)
+    
+    # 古い記憶を確実に上書きクリア
+    if hasattr(bpy.types.Scene, "suriza_slice_count"): del bpy.types.Scene.suriza_slice_count
+    if hasattr(bpy.types.Scene, "suriza_slice_distance"): del bpy.types.Scene.suriza_slice_distance
+    if hasattr(bpy.types.Scene, "suriza_rot_x"): del bpy.types.Scene.suriza_rot_x
+    if hasattr(bpy.types.Scene, "suriza_rot_y"): del bpy.types.Scene.suriza_rot_y
+    if hasattr(bpy.types.Scene, "suriza_rot_z"): del bpy.types.Scene.suriza_rot_z
+
+    bpy.types.Scene.suriza_slice_count = bpy.props.IntProperty(name="Count", default=30, min=1, max=100)

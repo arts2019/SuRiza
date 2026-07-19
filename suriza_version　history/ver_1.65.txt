@@ -1,0 +1,199 @@
+# ---------------------------------------------------------------------------
+# SuRiZa Ver 1.4 - [Update: Blade Box System with Rotation Control]
+# Developed by mukana8888 & Gai (Powered by Google AI)
+# ---------------------------------------------------------------------------
+
+bl_info = {
+    "name": "SuRiZa Core System",
+    "author": "mukana8888 & Gai",
+    "version": (1, 4, 0), # バージョンを1.4に進化！
+    "blender": (3, 3, 0), # Blender 3.3に完全適合
+    "location": "View3D > Sidebar > SuRiZa タブ",
+    "description": "箱型のブレードを回転させてぶつけ、選択したパーツの表面から完璧な星座線を抽出する",
+    "category": "Mesh",
+}
+
+import bpy
+import math
+
+def execute_suriza_blade_box(context):
+    base_obj = context.active_object
+    if not base_obj or base_obj.type != 'MESH':
+        return {'CANCELLED'}
+    
+    scene = context.scene
+    slice_count = scene.suriza_slice_count
+    slice_distance = scene.suriza_slice_distance
+    
+    # ユーザーがUIで設定した回転角度（度数をラジアンに変換）
+    rot_x = math.radians(scene.suriza_rot_x)
+    rot_y = math.radians(scene.suriza_rot_y)
+    rot_z = math.radians(scene.suriza_rot_z)
+    
+    # 必ず「編集モード」でポリゴンが選択されているかチェック
+    if base_obj.mode != 'EDIT':
+        return {'CANCELLED'}
+    
+    # [ステップ1] 編集モードのまま、点線枠で選択された表面パーツだけを一時分離
+    bpy.ops.mesh.duplicate() 
+    bpy.ops.mesh.separate(type='SELECTED') 
+    
+    bpy.ops.object.mode_set(mode='OBJECT')
+    separated_parts = [obj for obj in context.selected_objects if obj != base_obj]
+    
+    if not separated_parts:
+        base_obj.select_set(True)
+        context.view_layer.objects.active = base_obj
+        bpy.ops.object.mode_set(mode='EDIT')
+        return {'CANCELLED'}
+    
+    part_obj = separated_parts[0] # 最初の分離オブジェクトを確実に取得
+    part_obj.name = "SuRiZa_Temp_Part"
+    
+    # [★新思想・ステップ2★] ユーザーが指定したパーツの場所に「箱型ブレード」を自動生成
+    part_loc = part_obj.location.copy()
+    
+    # 図解の通り、中にパーツを閉じ込める「四角い箱（立方体）」をカッターの土台として生成
+    bpy.ops.mesh.primitive_cube_add(size=2.0, location=part_loc)
+    grid_obj = context.active_object
+    grid_obj.name = "SuRiZa_Blade_Box"
+    grid_obj.display_type = 'WIRE'
+    
+    # パーツのサイズに合わせて箱を少し平べったく最適化（縦横のフィット）
+    grid_obj.scale = (3.0, 3.0, 0.01)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    
+    # 配列モディファイアで、箱型の刃を設定された数と間隔で積み上げる
+    array_mod = grid_obj.modifiers.new(name="SuRiZa_Array", type='ARRAY')
+    array_mod.count = slice_count
+    array_mod.use_relative_offset = False
+    array_mod.use_constant_offset = True
+    grid_obj.location.z -= (slice_count / 2) * slice_distance
+    array_mod.constant_offset_displace = (0, 0, slice_distance)
+    
+    bpy.ops.object.modifier_apply(modifier="SuRiZa_Array")
+    
+    # [★新機能★] ユーザーがUIで思い描いた角度に、ブレードの箱を回転させる処理（90度回転も自由自在！）
+    grid_obj.rotation_euler = (rot_x, rot_y, rot_z)
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+    
+    # [ステップ3] 分離した表面パーツに「箱型ブレード」でブーリアン交差をかける
+    bpy.ops.object.select_all(action='DESELECT')
+    part_obj.select_set(True)
+    context.view_layer.objects.active = part_obj
+    
+    bool_mod = part_obj.modifiers.new(name="SuRiZa_Intersect", type='BOOLEAN')
+    bool_mod.operation = 'INTERSECT'
+    bool_mod.object = grid_obj
+    bool_mod.solver = 'FAST' # 表面だけなので超高速サクサクモード！
+    
+    bpy.ops.object.modifier_apply(modifier="SuRiZa_Intersect")
+    
+    # 使い終わった箱型ブレード（ジグ）を綺麗にお掃除（削除）
+    bpy.ops.object.select_all(action='DESELECT')
+    grid_obj.select_set(True)
+    bpy.ops.object.delete()
+    
+    # [ステップ4] 結果を「シャープな辺と頂点（星座線）」だけにお掃除する
+    part_obj.name = "SuRiZa_Result_Lines"
+    part_obj.select_set(True)
+    context.view_layer.objects.active = part_obj
+    
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.delete(type='ONLY_FACE') # 面を消して線だけにする
+    bpy.ops.object.mode_set(mode='OBJECT')
+    
+    # [ステップ5] 発光オレンジのマテリアルを安全に自動付与
+    mat_name = "SuRiZa_Orange_Guide"
+    suriza_mat = bpy.data.materials.get(mat_name)
+    
+    if not suriza_mat:
+        suriza_mat = bpy.data.materials.new(name=mat_name)
+        suriza_mat.use_nodes = True
+        nodes = suriza_mat.node_tree.nodes
+        links = suriza_mat.node_tree.links
+        
+        nodes.clear()
+        node_output = nodes.new(type='ShaderNodeOutputMaterial')
+        node_emission = nodes.new(type='ShaderNodeEmission')
+        
+        node_emission.inputs[0].default_value = (1.0, 0.25, 0.0, 1.0) # オレンジ
+        node_emission.inputs[1].default_value = 3.0                    # 輝度
+        
+        links.new(node_emission.outputs[0], node_output.inputs[0])
+    
+    part_obj.data.materials.clear()
+    part_obj.data.materials.append(suriza_mat)
+    part_obj.color = (1.0, 0.25, 0.0, 1.0)
+    
+    # [ステップ6] 元のベスト本体をアクティブに戻して編集モードをキープ（次のパーツへ！）
+    base_obj.select_set(True)
+    context.view_layer.objects.active = base_obj
+    bpy.ops.object.mode_set(mode='EDIT') 
+    
+    return {'FINISHED'}
+
+# ---------------------------------------------------------------------------
+# 2. Blenderの画面（サイドバー）のUI設定
+# ---------------------------------------------------------------------------
+class VIEW3D_PT_suriza_panel(bpy.types.Panel):
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'SuRiZa'
+    bl_label = 'SuRiZa Core System'
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        
+        layout.label(text="Version 1.4 (Blade Box Mode)") 
+        
+        layout.label(text="[カッターの設定]")
+        layout.prop(scene, "suriza_slice_count", text="スライス数")
+        layout.prop(scene, "suriza_slice_distance", text="間隔 (m)")
+        
+        # ★ユーザーが思い描く角度に調整できる回転スライダーを追加！
+        layout.separator()
+        layout.label(text="[ブレード箱の角度調節]")
+        layout.prop(scene, "suriza_rot_x", text="X軸回転 (度)")
+        layout.prop(scene, "suriza_rot_y", text="Y軸回転 (度)")
+        layout.prop(scene, "suriza_rot_z", text="Z軸回転 (度)")
+        
+        layout.separator()
+        layout.label(text="※面を選択して実行:")
+        layout.operator("object.suriza_run", text="箱型ブレードでスライス", icon='MESH_GRID')
+
+class OBJECT_OT_suriza_run(bpy.types.Operator):
+    bl_idname = "object.suriza_run"
+    bl_label = "Run SuRiZa Blade Box Slice"
+    
+    def execute(self, context):
+        return execute_suriza_blade_box(context)
+
+# ---------------------------------------------------------------------------
+# 3. 登録と解除（初期値の設定）
+# ---------------------------------------------------------------------------
+def register():
+    bpy.utils.register_class(VIEW3D_PT_suriza_panel)
+    bpy.utils.register_class(OBJECT_OT_suriza_run)
+    
+    bpy.types.Scene.suriza_slice_count = bpy.props.IntProperty(name="Count", default=30, min=1, max=100)
+    bpy.types.Scene.suriza_slice_distance = bpy.props.FloatProperty(name="Distance", default=0.03, min=0.001, max=10.0)
+    
+    # 回転角度の初期値（デフォルトは0度、-360〜360度まで自由調整）
+    bpy.types.Scene.suriza_rot_x = bpy.props.FloatProperty(name="RotX", default=0.0, min=-360.0, max=360.0)
+    bpy.types.Scene.suriza_rot_y = bpy.props.FloatProperty(name="RotY", default=0.0, min=-360.0, max=360.0)
+    bpy.types.Scene.suriza_rot_z = bpy.props.FloatProperty(name="RotZ", default=0.0, min=-360.0, max=360.0)
+
+def unregister():
+    bpy.utils.unregister_class(VIEW3D_PT_suriza_panel)
+    bpy.utils.unregister_class(OBJECT_OT_suriza_run)
+    del bpy.types.Scene.suriza_slice_count
+    del bpy.types.Scene.suriza_slice_distance
+    del bpy.types.Scene.suriza_rot_x
+    del bpy.types.Scene.suriza_rot_y
+    del bpy.types.Scene.suriza_rot_z
+
+if __name__ == "__main__":
+    register()

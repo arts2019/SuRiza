@@ -1,0 +1,181 @@
+# ---------------------------------------------------------------------------
+# SuRiZa Ver 1.3 - [Prototype: Selected Mesh Partition & Extract Mode]
+# Developed by mukana8888 & Gai (Powered by Google AI)
+# ---------------------------------------------------------------------------
+
+bl_info = {
+    "name": "SuRiZa Core System",
+    "author": "mukana8888 & Gai",
+    "version": (1, 3), # バージョンを1.3（パーツ限定分割版）にアップ！
+    "blender": (3, 3, 0),
+    "location": "View3D > Sidebar > SuRiZa タブ",
+    "description": "編集モードで選択したパーツの表面だけを狙って、完璧な極細オレンジの星座線を抽出する",
+    "category": "Mesh",
+}
+
+import bpy
+import bmesh
+
+# ---------------------------------------------------------------------------
+# 1. メインの処理：ユーザーが選択した「面」だけを分離してスライスし、統合する関数
+# ---------------------------------------------------------------------------
+def execute_suriza_selected_slice(context):
+    # 現在アクティブなオブジェクト（ベストの本体など）を取得
+    base_obj = context.active_object
+    if not base_obj or base_obj.type != 'MESH':
+        return {'CANCELLED'}
+    
+    # ユーザーの設定数値を取得
+    scene = context.scene
+    slice_count = scene.suriza_slice_count
+    slice_distance = scene.suriza_slice_distance
+    
+    # 必ず「編集モード」でポリゴンが選択されているかチェック
+    if base_obj.mode != 'EDIT':
+        return {'CANCELLED'}
+    
+    # [ステップ1] 編集モードのまま、選択された面（パーツ）だけを「別オブジェクト」として一時分離
+    bpy.ops.mesh.duplicate() # 選択部分を複製
+    bpy.ops.mesh.separate(type='SELECTED') # 別オブジェクトに分離
+    
+    # オブジェクトモードに戻って一時分離したパーツを取得
+    bpy.ops.object.mode_set(mode='OBJECT')
+    separated_parts = [obj for obj in context.selected_objects if obj != base_obj]
+    
+    if not separated_parts:
+        # 何も選択されていなかった場合は編集モードに戻して終了
+        bpy.ops.object.select_all(action='DESELECT')
+        base_obj.select_set(True)
+        context.view_layer.objects.active = base_obj
+        bpy.ops.object.mode_set(mode='EDIT')
+        return {'CANCELLED'}
+    
+    part_obj = separated_parts[0]
+    part_obj.name = "SuRiZa_Temp_Part"
+    
+    # [ステップ2] 分離した「軽い表面パーツ」の中心にジグ（Grid）の開始位置を合わせる
+    part_loc = part_obj.location.copy()
+    
+    # 内部的にスライス用パネル（Grid）を作成
+    bpy.ops.mesh.primitive_grid_add(size=5, x_subdivisions=2, y_subdivisions=2, location=part_loc)
+    grid_obj = context.active_object
+    grid_obj.name = "SuRiZa_Cutter_Grid"
+    grid_obj.display_type = 'WIRE'
+    
+    # 分離パーツの高さに合わせて上下均等にカッターを並べる（隙間バグの完全修正）
+    array_mod = grid_obj.modifiers.new(name="SuRiZa_Array", type='ARRAY')
+    array_mod.count = slice_count
+    array_mod.use_relative_offset = False
+    array_mod.use_constant_offset = True
+    grid_obj.location.z -= (slice_count / 2) * slice_distance
+    array_mod.constant_offset_displace = (0, 0, slice_distance)
+    
+    bpy.ops.object.modifier_apply(modifier="SuRiZa_Array")
+    
+    # [ステップ3] 分離した表面パーツにだけブーリアン（交差）をかける（超・軽量化）
+    bpy.ops.object.select_all(action='DESELECT')
+    part_obj.select_set(True)
+    context.view_layer.objects.active = part_obj
+    
+    bool_mod = part_obj.modifiers.new(name="SuRiZa_Intersect", type='BOOLEAN')
+    bool_mod.operation = 'INTERSECT'
+    bool_mod.object = grid_obj
+    bool_mod.solver = 'FAST' # 表面だけなので超高速なFASTモードでサクサク動かす！
+    
+    bpy.ops.object.modifier_apply(modifier="SuRiZa_Intersect")
+    
+    # 使い終わったカッターグリッドを削除
+    bpy.ops.object.select_all(action='DESELECT')
+    grid_obj.select_set(True)
+    bpy.ops.object.delete()
+    
+    # [ステップ4] 結果を「シャープな辺と頂点だけ」にお掃除する
+    part_obj.name = "SuRiZa_Result_Lines"
+    part_obj.select_set(True)
+    context.view_layer.objects.active = part_obj
+    
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.mesh.delete(type='ONLY_FACE') # 面を消して線だけにする
+    bpy.ops.object.mode_set(mode='OBJECT')
+    
+    # [ステップ5] 発光オレンジのマテリアルを自動付与して目立たせる
+    mat_name = "SuRiZa_Orange_Guide"
+    suriza_mat = bpy.data.materials.get(mat_name)
+    
+    if not suriza_mat:
+        suriza_mat = bpy.data.materials.new(name=mat_name)
+        suriza_mat.use_nodes = True
+        nodes = suriza_mat.node_tree.nodes
+        links = suriza_mat.node_tree.links
+        
+        nodes.clear()
+        node_output = nodes.new(type='ShaderNodeOutputMaterial')
+        node_emission = nodes.new(type='ShaderNodeEmission')
+        
+        node_emission.inputs.default_value = (1.0, 0.25, 0.0, 1.0)
+        node_emission.inputs.default_value = 3.0
+        
+        links.new(node_emission.outputs, node_output.inputs)
+    
+    if len(part_obj.data.materials) == 0:
+        part_obj.data.materials.append(suriza_mat)
+    else:
+        part_obj.data.materials = suriza_mat
+        
+    part_obj.color = (1.0, 0.25, 0.0, 1.0)
+    
+    # [ステップ6] 最後に、元のベスト本体を選択状態に戻してあげる（次のパーツ選択へスムーズに移行）
+    base_obj.select_set(True)
+    context.view_layer.objects.active = base_obj
+    bpy.ops.object.mode_set(mode='EDIT') # すぐに次のパーツを選べるように編集モードをキープ！
+    
+    return {'FINISHED'}
+
+# ---------------------------------------------------------------------------
+# 2. Blenderの画面（サイドバー）のUI設定
+# ---------------------------------------------------------------------------
+class VIEW3D_PT_suriza_panel(bpy.types.Panel):
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'SuRiZa'
+    bl_label = 'SuRiZa Core System'
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        
+        layout.label(text="Version 1.3 (Partition Mode)") # パルティシオン（分割）モード！
+        layout.label(text="Slice Settings:")
+        layout.prop(scene, "suriza_slice_count", text="スライス数")
+        layout.prop(scene, "suriza_slice_distance", text="間隔 (m)")
+        
+        layout.separator()
+        layout.label(text="※編集モードでパーツの表面を選んで実行:")
+        layout.operator("object.suriza_run", text="選択部分をスライス（パーツ抽出）", icon='MESH_GRID')
+
+class OBJECT_OT_suriza_run(bpy.types.Operator):
+    bl_idname = "object.suriza_run"
+    bl_label = "Run SuRiZa Partition Slice"
+    
+    def execute(self, context):
+        return execute_suriza_selected_slice(context)
+
+# ---------------------------------------------------------------------------
+# 3. 登録と解除
+# ---------------------------------------------------------------------------
+def register():
+    bpy.utils.register_class(VIEW3D_PT_suriza_panel)
+    bpy.utils.register_class(OBJECT_OT_suriza_run)
+    
+    bpy.types.Scene.suriza_slice_count = bpy.props.IntProperty(name="Count", default=30, min=1, max=100)
+    bpy.types.Scene.suriza_slice_distance = bpy.props.FloatProperty(name="Distance", default=0.05, min=0.001, max=10.0)
+
+def unregister():
+    bpy.utils.unregister_class(VIEW3D_PT_suriza_panel)
+    bpy.utils.unregister_class(OBJECT_OT_suriza_run)
+    del bpy.types.Scene.suriza_slice_count
+    del bpy.types.Scene.suriza_slice_distance
+
+if __name__ == "__main__":
+    register()

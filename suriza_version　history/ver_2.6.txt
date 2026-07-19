@@ -1,0 +1,91 @@
+bl_info = {
+    "name": "SuRiZa Blade Caller",
+    "author": "zoukei",
+    "version": (0, 1, 0),
+    "blender": (3, 0, 0),
+    "location": "3Dビュー > Nパネル > SuRiZa",
+    "description": "SurRiza_blade を原点に呼び出す最小版",
+    "category": "Object",
+}
+
+import bpy
+
+
+# SurRiza_blade を作成（今は単純な平面。後で自分のブレードに差し替えOK）
+def create_surRiza_blade(context):
+    # 既に存在する場合はそれを使う
+    for obj in context.scene.objects:
+        if obj.name == "SurRiza_blade":
+            return obj
+
+    # 新規作成（ここを自分のブレードメッシュに差し替えてOK）
+    bpy.ops.mesh.primitive_plane_add(
+        size=1.0,
+        enter_editmode=False,
+        align='WORLD',
+        location=(0.0, 0.0, 0.0),
+        rotation=(0.0, 0.0, 0.0),
+    )
+    obj = context.active_object
+    obj.name = "SurRiza_blade"
+
+    # スケールを 1.0 に固定
+    obj.scale = (1.0, 1.0, 1.0)
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+
+    return obj
+
+
+class OBJECT_OT_call_surRiza_blade(bpy.types.Operator):
+    bl_idname = "OBJECT.call_surRiza_blade"   # ← ここを修正（大文字でカテゴリ）
+    bl_label = "SurRiza_blade 呼び出し"
+    bl_description = "SurRiza_blade を原点に呼び出す"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        obj = create_surRiza_blade(context)
+
+        # 原点＆回転を固定
+        obj.location = (0.0, 0.0, 0.0)
+        obj.rotation_euler = (0.0, 0.0, 0.0)
+
+        # アクティブにする
+        context.view_layer.objects.active = obj
+        obj.select_set(True)
+
+        self.report({'INFO'}, "SurRiza_blade 呼び出し完了")
+        return {'FINISHED'}
+
+
+class VIEW3D_PT_surRiza_panel(bpy.types.Panel):
+    bl_label = "SuRiZa"
+    bl_idname = "VIEW3D_PT_surRiza_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "SuRiZa"
+
+    def draw(self, context):
+        layout = self.layout
+        col = layout.column(align=True)
+        col.label(text="ブレード")
+        col.operator("OBJECT.call_surRiza_blade", icon='MESH_PLANE')  # ← ここも大文字に統一
+
+
+classes = (
+    OBJECT_OT_call_surRiza_blade,
+    VIEW3D_PT_surRiza_panel,
+)
+
+
+def register():
+    for cls in classes:
+        bpy.utils.register_class(cls)
+
+
+def unregister():
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
+
+
+if __name__ == "__main__":
+    register()

@@ -1,0 +1,158 @@
+# ---------------------------------------------------------------------------
+# SuRiZa Ver 1.2 - [Update: Perfect Sharp Outline Mode for Blender 3.3]
+# Developed by mukana8888 & Gai
+# ---------------------------------------------------------------------------
+
+bl_info = {
+    "name": "SuRiZa Core System",
+    "author": "mukana8888 & Gai",
+    "version": (1, 2), # バージョンを1.2にアップ！
+    "blender": (3, 3, 0), # Blender 3.3に完全対応
+    "location": "View3D > Sidebar > SuRiZa タブ",
+    "description": "3D生成AIのメッシュから、完璧にシャープなオレンジの横ラインと頂点を抽出するガイドツール",
+    "category": "Mesh",
+}
+
+import bpy
+
+# ---------------------------------------------------------------------------
+# 1. メインの処理：極細のシャープなラインと頂点だけを抽出する関数
+# ---------------------------------------------------------------------------
+def execute_suriza_slice(context):
+    target_obj = context.active_object
+    if not target_obj or target_obj.type != 'MESH':
+        return {'CANCELLED'}
+    
+    scene = context.scene
+    slice_count = scene.suriza_slice_count
+    slice_distance = scene.suriza_slice_distance
+    
+    # [ステップ1] ターゲットの中心位置を取得してジグ（Grid）の開始点を最適化
+    target_loc = target_obj.location.copy()
+    
+    # 内部的にスライス用パネル（Grid）を作成
+    bpy.ops.mesh.primitive_grid_add(size=10, x_subdivisions=2, y_subdivisions=2, location=target_loc)
+    grid_obj = context.active_object
+    grid_obj.name = "SuRiZa_Cutter_Grid"
+    grid_obj.display_type = 'WIRE'
+    
+    # 配列で一方向ではなく、モデルの中心を挟み込めるように開始位置を少し下にオフセット
+    array_mod = grid_obj.modifiers.new(name="SuRiZa_Array", type='ARRAY')
+    array_mod.count = slice_count
+    array_mod.use_relative_offset = False
+    array_mod.use_constant_offset = True
+    # Z軸の初期位置を「全体の数の半分」だけ下にずらして、上下均等に綺麗にスライス
+    grid_obj.location.z -= (slice_count / 2) * slice_distance
+    array_mod.constant_offset_displace = (0, 0, slice_distance)
+    
+    bpy.ops.object.modifier_apply(modifier="SuRiZa_Array")
+    
+    # [ステップ2] 元のモデルにブーリアン（交差）をかける
+    bpy.ops.object.select_all(action='DESELECT')
+    target_obj.select_set(True)
+    context.view_layer.objects.active = target_obj
+    bpy.ops.object.duplicate()
+    result_obj = context.active_object
+    result_obj.name = "SuRiZa_Result_Lines"
+    
+    bool_mod = result_obj.modifiers.new(name="SuRiZa_Intersect", type='BOOLEAN')
+    bool_mod.operation = 'INTERSECT'
+    bool_mod.object = grid_obj
+    bool_mod.solver = 'EXACT'
+    
+    bpy.ops.object.modifier_apply(modifier="SuRiZa_Intersect")
+    
+    # 使い終わったカッターグリッドを削除
+    bpy.ops.object.select_all(action='DESELECT')
+    grid_obj.select_set(True)
+    bpy.ops.object.delete()
+    
+    # [★新機能★ 100点満点のお掃除処理] 
+    # 帯のようになってしまった余分な「面」のデータを自動で強制消去し、純粋な極細の「辺と頂点」だけにする
+    bpy.ops.object.select_all(action='DESELECT')
+    result_obj.select_set(True)
+    context.view_layer.objects.active = result_obj
+    
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    # 「面のみを削除（Only Faces）」を実行し、骨組みの線だけを残す
+    bpy.ops.mesh.delete(type='ONLY_FACE')
+    bpy.ops.object.mode_set(mode='OBJECT')
+    
+    # [ステップ3] 抽出した極細ラインに「発光オレンジ」のマテリアルを自動付与
+    mat_name = "SuRiZa_Orange_Guide"
+    suriza_mat = bpy.data.materials.get(mat_name)
+    
+    if not suriza_mat:
+        suriza_mat = bpy.data.materials.new(name=mat_name)
+        suriza_mat.use_nodes = True
+        nodes = suriza_mat.node_tree.nodes
+        links = suriza_mat.node_tree.links
+        
+        nodes.clear()
+        node_output = nodes.new(type='ShaderNodeOutputMaterial')
+        node_emission = nodes.new(type='ShaderNodeEmission')
+        
+        node_emission.inputs[0].default_value = (1.0, 0.25, 0.0, 1.0)
+        node_emission.inputs[1].default_value = 3.0 # 線が細くなった分、輝きを少し強めにアップ
+        
+        links.new(node_emission.outputs[0], node_output.inputs[0])
+    
+    if len(result_obj.data.materials) == 0:
+        result_obj.data.materials.append(suriza_mat)
+    else:
+        result_obj.data.materials[0] = suriza_mat
+        
+    result_obj.color = (1.0, 0.25, 0.0, 1.0)
+    
+    result_obj.select_set(True)
+    context.view_layer.objects.active = result_obj
+    
+    return {'FINISHED'}
+
+# ---------------------------------------------------------------------------
+# 2. Blenderの画面（サイドバー）に専用の操作ボタンを作る設定
+# ---------------------------------------------------------------------------
+class VIEW3D_PT_suriza_panel(bpy.types.Panel):
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'SuRiZa'
+    bl_label = 'SuRiZa Core System'
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        
+        layout.label(text="Version 1.2 (Sharp Line Mode)") # UIの表記を1.2に更新！
+        layout.label(text="Slice Settings:")
+        layout.prop(scene, "suriza_slice_count", text="スライス数")
+        layout.prop(scene, "suriza_slice_distance", text="間隔 (m)")
+        
+        layout.separator()
+        layout.operator("object.suriza_run", text="SuRiZaを実行（頂点抽出）", icon='MESH_GRID')
+
+class OBJECT_OT_suriza_run(bpy.types.Operator):
+    bl_idname = "object.suriza_run"
+    bl_label = "Run SuRiZa Slice"
+    
+    def execute(self, context):
+        return execute_suriza_slice(context)
+
+# ---------------------------------------------------------------------------
+# 3. 登録と解除の仕組み
+# ---------------------------------------------------------------------------
+def register():
+    bpy.utils.register_class(VIEW3D_PT_suriza_panel)
+    bpy.utils.register_class(OBJECT_OT_suriza_run)
+    
+    bpy.types.Scene.suriza_slice_count = bpy.props.IntProperty(name="Count", default=10, min=1, max=100)
+    bpy.types.Scene.suriza_slice_distance = bpy.props.FloatProperty(name="Distance", default=0.2, min=0.01, max=10.0)
+
+def unregister():
+    bpy.utils.unregister_class(VIEW3D_PT_suriza_panel)
+    bpy.utils.unregister_class(OBJECT_OT_suriza_run)
+    del bpy.types.Scene.suriza_slice_count
+    del bpy.types.Scene.suriza_slice_distance
+
+if __name__ == "__main__":
+    register()

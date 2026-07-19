@@ -1,0 +1,218 @@
+# ---------------------------------------------------------------------------
+# SuRiZa Ver 1.4.0 - [New Pure Rebuild: Blade Box Sync System]
+# Developed by mukana8888 & Gai (Powered by Google AI)
+# ---------------------------------------------------------------------------
+
+bl_info = {
+    "name": "SuRiZa Core System",
+    "author": "mukana8888 & Gai",
+    "version": (1, 4, 0),
+    "blender": (3, 3, 0),
+    "location": "View3D > Sidebar > SuRiZa タブ",
+    "description": "実物のブレード箱をマニピュレーターで操作し、狙ったパーツの表面を正確に解体する",
+    "category": "Mesh",
+}
+
+import bpy
+import math
+
+# ---------------------------------------------------------------------------
+# 1. ユーザーが操作する「本物のブレード箱」を画面に出現させる関数（ステップ1〜3）
+# ---------------------------------------------------------------------------
+class OBJECT_OT_suriza_create_blade(bpy.types.Operator):
+    bl_idname = "object.suriza_create_blade"
+    bl_label = "Create Blade Box"
+    bl_description = "画面にサイズ・回転を自由に変えられるブレードの箱を出現させます"
+    
+    def execute(self, context):
+        # 画面にすでにブレード箱がある場合は一度消して新しく作り直す（セーフティ）
+        if "SuRiZa_Blade_Target" in bpy.data.objects:
+            bpy.ops.object.select_all(action='DESELECT')
+            bpy.data.objects["SuRiZa_Blade_Target"].select_set(True)
+            bpy.ops.object.delete()
+
+        # 図解の通り、中にパーツを閉じ込める「本物の箱（立方体）」を生成
+        bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0, 0, 0))
+        blade_obj = context.active_object
+        blade_obj.name = "SuRiZa_Blade_Target"
+        
+        # 視認性が抜群で裏側までクッキリ透けて見える「ワイヤーフレーム表示」に強制設定
+        blade_obj.display_type = 'WIRE'
+        # 3Dビューポート上で目立つように発光オレンジの線にする設定
+        blade_obj.color = (1.0, 0.4, 0.0, 1.0)
+        
+        # ユーザーが図解のステップ1〜3（ScaleやRotation、移動マニピュレーター）を直感的に使いやすいように「オブジェクトモード」にする
+        bpy.ops.object.mode_set(mode='OBJECT')
+        
+        self.report({'INFO'}, "SuRiZa: ブレード箱を生成しました。移動・回転・拡大縮小してください。")
+        return {'FINISHED'}
+
+# ---------------------------------------------------------------------------
+# 2. メインの処理：ユーザーが配置したブレード箱の通りにパーツを等間隔スライスする関数（ステップ4）
+# ---------------------------------------------------------------------------
+class OBJECT_OT_suriza_execute_slice(bpy.types.Operator):
+    bl_idname = "object.suriza_execute_slice"
+    bl_label = "Execute SuRiZa Slice"
+    bl_description = "配置したブレード箱の範囲・傾きに従って、選択したパーツを全自動で等間隔スライスします"
+    
+    def execute(self, context):
+        # 【超強化セーフティ】ブレード箱が画面にない場合はエラーを吐かずに安全に警告を出す
+        if "SuRiZa_Blade_Target" not in bpy.data.objects:
+            self.report({'WARNING'}, "SuRiZa: 先に「ブレードの箱」を生成してください！")
+            return {'CANCELLED'}
+            
+        blade_obj = bpy.data.objects["SuRiZa_Blade_Target"]
+        target_obj = context.active_object
+        
+        # ターゲット（タクティカルベストなど）が正しく選ばれているかチェック
+        if not target_obj or target_obj.type != 'MESH' or target_obj == blade_obj:
+            self.report({'WARNING'}, "SuRiZa: スライス対象のモデル（ハイポリ）を選択してください。")
+            return {'CANCELLED'}
+            
+        scene = context.scene
+        slice_count = scene.suriza_slice_count
+        
+        # [★新思想★] ユーザーがギズモで動かしたブレード箱の「本当の場所・角度・大きさ」をそのまま取得
+        loc = blade_obj.location.copy()
+        rot = blade_obj.rotation_euler.copy()
+        scale = blade_obj.scale.copy()
+        
+        # [ステップ1] ターゲットを一時的に複製してお掃除用の土台を作る
+        bpy.ops.object.mode_set(mode='OBJECT')
+        bpy.ops.object.select_all(action='DESELECT')
+        target_obj.select_set(True)
+        context.view_layer.objects.active = target_obj
+        bpy.ops.object.duplicate()
+        result_obj = context.active_object
+        result_obj.name = "SuRiZa_Result_Lines"
+        
+        # [ステップ2] ブレード箱のスケールに合わせて、内部に自動でスライスカッターを敷き詰める
+        bpy.ops.mesh.primitive_grid_add(size=1.0, x_subdivisions=2, y_subdivisions=2, location=loc)
+        cutter_obj = context.active_object
+        cutter_obj.name = "SuRiZa_Internal_Cutter"
+        
+        # ユーザーが調整した箱の「横幅」と「奥行き」にカッターのサイズを完全シンクロ
+        cutter_obj.scale = (scale.x * 2, scale.y * 2, 0.001)
+        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+        
+        # 箱の「高さ」に合わせて、配列（Array）で等間隔スライスカッターを積み上げる
+        # これにより、どれだけ箱を引っ張って大きくしても、1ミリの空白の隙間もなく等間隔になります！
+        slice_distance = (scale.z * 2) / max(1, slice_count - 1)
+        
+        array_mod = cutter_obj.modifiers.new(name="SuRiZa_Array", type='ARRAY')
+        array_mod.count = slice_count
+        array_mod.use_relative_offset = False
+        array_mod.use_constant_offset = True
+        cutter_obj.location.z -= scale.z # 箱の一番底からスタート
+        array_mod.constant_offset_displace = (0, 0, slice_distance)
+        
+        bpy.ops.object.modifier_apply(modifier="SuRiZa_Array")
+        
+        # ユーザーがギズモで傾けた「角度」をカッターにも完全にシンクロ（回転適用）
+        cutter_obj.rotation_euler = rot
+        bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+        
+        # [ステップ3] ブーリアン交差をかける（超高速FASTモード）
+        bpy.ops.object.select_all(action='DESELECT')
+        result_obj.select_set(True)
+        context.view_layer.objects.active = result_obj
+        
+        bool_mod = result_obj.modifiers.new(name="SuRiZa_Intersect", type='BOOLEAN')
+        bool_mod.operation = 'INTERSECT'
+        bool_mod.object = cutter_obj
+        bool_mod.solver = 'FAST'
+        
+        bpy.ops.object.modifier_apply(modifier="SuRiZa_Intersect")
+        
+        # 使い終わった内部カッターを自動でお掃除（削除）
+        bpy.ops.object.select_all(action='DESELECT')
+        cutter_obj.select_set(True)
+        bpy.ops.object.delete()
+        
+        # [ステップ4] 結果をシャープな「辺と頂点（星座線）」だけにする
+        result_obj.select_set(True)
+        context.view_layer.objects.active = result_obj
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.select_all(action='SELECT')
+        bpy.ops.mesh.delete(type='ONLY_FACE')
+        bpy.ops.object.mode_set(mode='OBJECT')
+        
+        # [ステップ5] 発光オレンジのマテリアルを安全に自動付与
+        mat_name = "SuRiZa_Orange_Guide"
+        suriza_mat = bpy.data.materials.get(mat_name)
+        
+        if not suriza_mat:
+            suriza_mat = bpy.data.materials.new(name=mat_name)
+            suriza_mat.use_nodes = True
+            nodes = suriza_mat.node_tree.nodes
+            links = suriza_mat.node_tree.links
+            
+            nodes.clear()
+            node_output = nodes.new(type='ShaderNodeOutputMaterial')
+            node_emission = nodes.new(type='ShaderNodeEmission')
+            
+            node_emission.inputs[0].default_value = (1.0, 0.25, 0.0, 1.0)
+            node_emission.inputs[1].default_value = 3.0
+            
+            links.new(node_emission.outputs[0], node_output.inputs[0])
+            
+        result_obj.data.materials.clear()
+        result_obj.data.materials.append(suriza_mat)
+        result_obj.color = (1.0, 0.25, 0.0, 1.0)
+        
+        self.report({'INFO'}, "SuRiZa: 完璧な等間隔スライスが完了しました！")
+        return {'FINISHED'}
+
+# ---------------------------------------------------------------------------
+# 3. Blenderのサイドバー画面（UIパネル）の設定
+# ---------------------------------------------------------------------------
+class VIEW3D_PT_suriza_panel(bpy.types.Panel):
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'SuRiZa'
+    bl_label = 'SuRiZa Core System'
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        
+        layout.label(text="Version 1.4.0 (Blade Box Rebuild)")
+        
+        # ステップ1〜3用のボタン
+        layout.separator()
+        layout.label(text="[手順1: カッター箱の配置]")
+        layout.operator("object.suriza_create_blade", text="ブレードの箱を出現させる", icon='BOX_KEYFRAME')
+        
+        # スライス数（カッターの枚数）の設定
+        layout.separator()
+        layout.label(text="[手順2: スライスの設定]")
+        layout.prop(scene, "suriza_slice_count", text="分割（スライス）数")
+        
+        # ステップ4の実行ボタン
+        layout.separator()
+        layout.label(text="[手順3: ガイド線の抽出実行]")
+        layout.operator("object.suriza_execute_slice", text="図解通りにスライス実行！", icon='MESH_GRID')
+
+# ---------------------------------------------------------------------------
+# 4. アドオンの登録と解除（エラー原因を完全に排除したクリーン構造）
+# ---------------------------------------------------------------------------
+classes = (
+    OBJECT_OT_suriza_create_blade,
+    OBJECT_OT_suriza_execute_slice,
+    VIEW3D_PT_suriza_panel,
+)
+
+def register():
+    for cls in classes:
+        bpy.utils.register_class(cls)
+    
+    # 競合を起こさないための標準プロパティのみを安全に登録
+    bpy.types.Scene.suriza_slice_count = bpy.props.IntProperty(name="Count", default=20, min=2, max=100)
+
+def unregister():
+    for cls in reversed(classes):
+        bpy.utils.unregister_class(cls)
+    del bpy.types.Scene.suriza_slice_count
+
+if __name__ == "__main__":
+    register()

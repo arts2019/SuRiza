@@ -1,0 +1,109 @@
+# Blenderが正式なアドオンとして認識するための必須情報（bl_info）
+bl_info = {
+    "name": "SuRiZa Core System",
+    "author": "mukana8888",
+    "version": (1, 0),
+    "blender": (3, 0, 0),
+    "location": "View3D > Sidebar > SuRiZa タブ",
+    "description": "3D生成AIの重いメッシュから、等間隔の横ラインと頂点を抽出するガイドツール",
+    "category": "Mesh",
+}
+
+import bpy
+
+# ---------------------------------------------------------------------------
+# 1. メインの処理：ブーリアン交差を使って「横ラインと頂点」を抽出する関数
+# ---------------------------------------------------------------------------
+def execute_suriza_slice(context):
+    target_obj = context.active_object
+    if not target_obj or target_obj.type != 'MESH':
+        return {'CANCELLED'}
+    
+    scene = context.scene
+    slice_count = scene.suriza_slice_count
+    slice_distance = scene.suriza_slice_distance
+    
+    # [ステップ1] 内部的に等間隔のスライス用パネル（グリッド）を作成
+    bpy.ops.mesh.primitive_grid_add(size=10, x_subdivisions=2, y_subdivisions=2, location=(0, 0, 0))
+    grid_obj = context.active_object
+    grid_obj.name = "SuRiZa_Cutter_Grid"
+    grid_obj.display_type = 'WIRE'
+    
+    array_mod = grid_obj.modifiers.new(name="SuRiZa_Array", type='ARRAY')
+    array_mod.count = slice_count
+    array_mod.use_relative_offset = False
+    array_mod.use_constant_offset = True
+    array_mod.constant_offset_displace = (0, 0, slice_distance)
+    
+    bpy.ops.object.modifier_apply(modifier="SuRiZa_Array")
+    
+    # [ステップ2] 元のモデルにブーリアン（交差）をかける
+    bpy.ops.object.select_all(action='DESELECT')
+    target_obj.select_set(True)
+    context.view_layer.objects.active = target_obj
+    bpy.ops.object.duplicate()
+    result_obj = context.active_object
+    result_obj.name = "SuRiZa_Result_Lines"
+    
+    bool_mod = result_obj.modifiers.new(name="SuRiZa_Intersect", type='BOOLEAN')
+    bool_mod.operation = 'INTERSECT'
+    bool_mod.object = grid_obj
+    bool_mod.solver = 'EXACT'
+    
+    bpy.ops.object.modifier_apply(modifier="SuRiZa_Intersect")
+    
+    # 使い終わったカッターグリッドを削除
+    bpy.ops.object.select_all(action='DESELECT')
+    grid_obj.select_set(True)
+    bpy.ops.object.delete()
+    
+    result_obj.select_set(True)
+    context.view_layer.objects.active = result_obj
+    
+    return {'FINISHED'}
+
+# ---------------------------------------------------------------------------
+# 2. Blenderの画面（サイドバー）に専用の操作ボタンを作る設定
+# ---------------------------------------------------------------------------
+class VIEW3D_PT_suriza_panel(bpy.types.Panel):
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = 'SuRiZa'
+    bl_label = 'SuRiZa Core System'
+
+    def draw(self, context):
+        layout = self.layout
+        scene = context.scene
+        
+        layout.label(text="Slice Settings:")
+        layout.prop(scene, "suriza_slice_count", text="スライス数")
+        layout.prop(scene, "suriza_slice_distance", text="間隔 (m)")
+        
+        layout.separator()
+        layout.operator("object.suriza_run", text="SuRiZaを実行（頂点抽出）", icon='MESH_GRID')
+
+class OBJECT_OT_suriza_run(bpy.types.Operator):
+    bl_idname = "object.suriza_run"
+    bl_label = "Run SuRiZa Slice"
+    
+    def execute(self, context):
+        return execute_suriza_slice(context)
+
+# ---------------------------------------------------------------------------
+# 3. 登録と解除の仕組み
+# ---------------------------------------------------------------------------
+def register():
+    bpy.utils.register_class(VIEW3D_PT_suriza_panel)
+    bpy.utils.register_class(OBJECT_OT_suriza_run)
+    
+    bpy.types.Scene.suriza_slice_count = bpy.props.IntProperty(name="Count", default=10, min=1, max=100)
+    bpy.types.Scene.suriza_slice_distance = bpy.props.FloatProperty(name="Distance", default=0.2, min=0.01, max=10.0)
+
+def unregister():
+    bpy.utils.unregister_class(VIEW3D_PT_suriza_panel)
+    bpy.utils.unregister_class(OBJECT_OT_suriza_run)
+    del bpy.types.Scene.suriza_slice_count
+    del bpy.types.Scene.suriza_slice_distance
+
+if __name__ == "__main__":
+    register()
