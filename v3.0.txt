@@ -1,0 +1,97 @@
+import blender_node_utils as bnu  # 仮想的な環境依存を避けるため標準APIのみで構築
+import bmesh
+import bpy
+import mathutils
+
+# ---------------------------------------------------------------------------
+# OBJECTIVE 1: 縦断面の不要な面（Boolean後に発生する壁面・蓋）を自動削除
+# ---------------------------------------------------------------------------
+def remove_longitudinal_faces(obj, ref_plane_normal, tolerance=0.01):
+    """基準面の法線に対して垂直な面（縦断面の面）を高速に削除する関数
+    Args:
+        obj (bpy.types.Object): 対象のメッシュオブジェクト
+        ref_plane_normal (mathutils.Vector): 基準面の法線ベクトル (正規化済み)
+        tolerance (float): 垂直判定の許容誤差
+    """
+    if obj.type != "MESH":
+        return
+
+    # エディットモードへ入らずにデータを直接操作 (50万ポリゴン超への対策)
+    me = obj.data
+    bm = bmesh.new()
+    bm.from_mesh(me)
+
+    faces_to_delete = []
+    ref_normal = ref_plane_normal.normalized()
+
+    for face in bm.faces:
+        # 基準面の法線と、各面の法線の内積を計算
+        dot_product = face.normal.dot(ref_normal)
+
+        # 内積が0に近い ＝ 基準面と直交する面（縦断面の壁や蓋）
+        if abs(dot_product) < tolerance:
+            faces_to_delete.append(face)
+
+    # 対象の面を安全に一括削除
+    bmesh.ops.delete(bm, geom=faces_to_delete, context="FACES")
+
+    # メッシュを更新してメモリを解放
+    bm.to_mesh(me)
+    bm.free()
+    me.update()
+
+
+# ---------------------------------------------------------------------------
+# OBJECTIVE 2: 垂直ガイド軸を基準とした、等間隔（水平ピッチ）の頂点生成
+# ---------------------------------------------------------------------------
+def generate_evenly_spaced_vertices(
+    edge_loop_verts, pitch_interval, vertical_axis="Z"
+):
+    """抽出されたエッジ上の頂点群を、指定されたピッチ間隔で等間隔に再配置する
+    Args:
+        edge_loop_verts (list of mathutils.Vector): 抽出されたラインの頂点座標リスト(ソート済み)
+        pitch_interval (float): 頂点間の目標距離（ピッチ）
+        vertical_axis (str): 基準となる垂直軸 ('X', 'Y', 'Z')
+    Returns:
+        list of mathutils.Vector: 等間隔に再配置された新しい頂点座標リスト
+    """
+    if len(edge_loop_verts) < 2:
+        return edge_loop_verts
+
+    new_verts = [edge_loop_verts[0]]
+    accumulated_distance = 0.0
+
+    # 垂直軸に応じた2D平面上のピッチを計算するためのインデックス設定
+    axis_idx = {"X": 0, "Y": 1, "Z": 2}.get(vertical_axis, 2)
+
+    for i in range(len(edge_loop_verts) - 1):
+        p1 = edge_loop_verts[i]
+        p2 = edge_loop_verts[i + 1]
+
+        # 垂直軸を除外した水平成分、または全成分での距離（今回は全線長で補間）
+        seg_length = (p2 - p1).length
+        if seg_length == 0:
+            continue
+
+        accumulated_distance += seg_length
+
+        # 累積距離が設定ピッチを超えたら、その間に等間隔に頂点を打つ
+        while accumulated_distance >= pitch_interval:
+            # 補間比率（t）の算出
+            overshoot = accumulated_distance - pitch_interval
+            t = (seg_length - overshoot) / seg_length
+
+            # 線形補間（Lerp）で正確な位置に頂点を生成
+            new_v = p1.lerp(p2, t)
+            new_verts.append(new_v)
+
+            # 次のピッチに向けて基準を更新
+            p1 = new_v
+            seg_length = overshoot
+            accumulated_distance = overshoot
+
+    # 終点を追加してラインを閉じる/完了
+    if (edge_loop_verts[-1] - new_verts[-1]).length > 0.001:
+        new_verts.append(edge_loop_verts[-1])
+
+    return new_verts
