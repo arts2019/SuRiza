@@ -1,10 +1,4 @@
-⚠️ **IMPORTANT: Do NOT install the downloaded file directly into Blender!**
-> Please extract (unzip) the file first, and install the `suriza_ver_2.9.zip` inside as the Blender add-on.
 
-**※ご注意：ダウンロードしたファイルを直接Blenderに読み込ませないでください！**
-> 一度ファイルを解凍（Zip展開）し、中に入っている `suriza ver_2.9.zip` をBlenderのアドオンとしてインストールしてください。
-# 🚀 START HERE: Download the Latest suriza Add-on ZIP
-To participate in the competition or test the latest features, please download the official add-on bundle directly from the link below:
 
 
 
