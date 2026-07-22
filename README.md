@@ -9,7 +9,8 @@ To participate in the competition or test the latest features, please download t
 
 
 
- <img width="4174" height="2477" alt="suriza Click here2" src="https://github.com/user-attachments/assets/61142be7-73d8-4840-bad4-7d58ea22f478" />
+ <img width="1500" height="500" alt="xメインページ" src="https://github.com/user-attachments/assets/895a05a1-2366-458f-948c-7dc7ce0d5fbc" />
+
 
 
 👉[Download Suriza v2.9](https://github.com/arts2019/SuRiza/raw/main/suriza_v29.zip)
