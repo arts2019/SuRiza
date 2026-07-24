@@ -1,3 +1,8 @@
+
+
+<img width="1600" height="900" alt="0723github" src="https://github.com/user-attachments/assets/4f4e0924-4496-4d19-a1f2-62fe48c1caea" />
+
+
 <img width="1600" height="900" alt="GitHub READMEのメイン画像：1600 × 900 px" src="https://github.com/user-attachments/assets/f74119b7-c613-4afe-b81a-6c2439a2ff38" />
 
 
@@ -18,7 +23,71 @@
  
 *Note: After downloading, open Blender 3.3+, go to Preferences -> Add-ons -> Install, and select this ZIP file to instantly activate the official baseline system.*
 
----
+
+# **Initial Validation of Coordinate Point Extraction Using SuRiZa Grid-Type Blades and the Shift Toward Stabilization**
+
+**July 24, 2026 — Research and Development Record**
+
+## 1. Background and Objective
+
+In this research, based on the initial proposal, we investigated a method for **extracting three-dimensional coordinate points from Hi-Poly models using a blade structure arranged in a grid pattern**.
+
+The objective of this method is to apply grid-shaped blades to Hi-Poly models with complex and highly dense polygon structures and efficiently acquire coordinate information from the model surface.
+
+## 2. Initial Validation
+
+In the validation, approximately 100 different models were tested, with **two extraction attempts per model, for a total of approximately 200 coordinate point extraction tests**.
+The tests were conducted under multiple conditions, varying factors such as blade shape, width, pitch, and placement angle.
+However, as a result, **only a few cases were successful, resulting in an extremely low overall success rate**.
+Furthermore, although repeated tests were conducted under various conditions, including changes to blade width and pitch, no significant improvement in the success rate was observed.
+Based on these results, it was determined that achieving stable coordinate point extraction using grid-type blades would be difficult through simple blade shape or parameter adjustments alone.
+
+## 3. New Insights Gained from the Failed Results
+
+However, during the validation process, **the behavior of the blades that failed to extract points correctly itself became an important clue**.
+Meanwhile, the conventional slicing method used in SuRiZa v2.9 had demonstrated a certain degree of success.
+By comparing and analyzing these two results, we focused on the question:
+> **"Why does the v2.9 slicing method succeed while the grid-type blades break down?"**
+
+As the investigation progressed, it became apparent that one of the major factors may be **the uneven number of vertices present in the sliced cross-sections of the Hi-Poly targets**, which destabilizes the structure of the grid-type blades and causes them to break down.
+
+## 4. Concept of a New Stabilization Method
+
+Based on this finding, rather than directly executing the extraction process using grid-type blades, we devised a new approach that introduces a **"vertex count preparation step"** as a preprocessing stage.
+In other words, the processing structure is as follows:
+
+**Hi-Poly Model**
+↓
+**Generation of Slice Cross-Sections**
+↓
+**Preparation of the Number and Arrangement of Vertices on the Cross-Sections**
+↓
+**Coordinate Point Extraction Using Grid-Type Blades**
+
+With this approach, it became possible to provide more stable input conditions for the grid-type blades, which had previously been unstable.
+Rather than simply abandoning the original idea of grid-type blades, this led to the concept of **reconstructing the original idea by analyzing the failed results and correcting the causes of failure through a new processing step**.
+
+## 5. Current Validation Results
+
+As a result of introducing this new processing structure, the stability of coordinate point extraction using grid-type blades has improved significantly.
+In the validation conducted so far, **the success rate has reached a level exceeding 60%**.
+Considering that the initial validation resulted in an extremely low success rate, this represents an important turning point toward the practical implementation of the grid-type blade method.
+
+## 6. Conclusion
+
+The most important achievement of this validation was **not only the successful results, but also the ability to infer the fundamental factors causing grid-type blades to break down from approximately 200 failed validation attempts and derive a new stabilization method**.
+In particular,
+> **"Discovering the conditions for success from blades that failed"**
+has become an important insight in establishing SuRiZa's unique new mesh processing structure.
+
+Although the success rate currently exceeds 60%, further stabilization and improvements in reproducibility remain challenges for the future.
+Going forward, we will continue to improve the vertex count preparation algorithm for cross-sections, stabilize the grid-type blades, and conduct validation on Hi-Poly models with a wide variety of shapes, with the goal of **establishing this as a new mesh processing technology capable of efficiently extracting coordinate information from high-density 3D models**.
+
+
+
+  
+
+
 
 
 
